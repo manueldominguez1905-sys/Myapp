@@ -601,7 +601,7 @@ body.dark .banner-alerta { background-color: #3a2e00; border-color: #e6a817; col
     <!-- IMPORTAR CORREO -->
     <section id="tab-importar" class="tab-content">
       <h2>📥 Importar Correo</h2>
-      <p class="help-text">Pega el texto del correo. La app detectará fecha, recibo, máquina e importe.</p>
+      <p class="help-text">Pega el texto del correo de recaudación. La app detectará fecha, servicio e importe.</p>
       <textarea id="textoCorreo" rows="8" placeholder="Pega aquí el texto del correo..."></textarea>
       <div class="form-actions">
         <button id="btnAnalizarCorreo" class="btn btn-primary">🔍 Analizar Correo</button>
@@ -610,17 +610,32 @@ body.dark .banner-alerta { background-color: #3a2e00; border-color: #e6a817; col
       <div id="resultadoAnalisis" class="form-card" style="display:none;">
         <h3>Datos detectados</h3>
         <p class="help-text">Revisa y completa los campos no detectados.</p>
+        <div id="impInfoExistente" class="info-box" style="display:none; margin-bottom:10px;"></div>
         <div class="form-row">
           <label>Fecha <input type="date" id="impFecha" /></label>
-          <label>Número de Recibo <input type="text" id="impRecibo" /></label>
+          <label>Servicio <input type="text" id="impServicio" placeholder="Ej: 4304" /></label>
         </div>
         <div class="form-row">
-          <label>Máquina <input type="text" id="impMaquina" /></label>
-          <label>Importe (€) <input type="number" id="impImporte" step="0.01" /></label>
+          <label>Importe detectado (€) <input type="number" id="impImporte" step="0.01" /></label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1 1 100%;">¿En qué parte guardar este importe?
+            <select id="impParte">
+              <option value="1">1ª Parte</option>
+              <option value="2">2ª Parte</option>
+            </select>
+          </label>
         </div>
         <div class="form-actions">
-          <button id="btnGuardarImportado" class="btn btn-primary">✅ Guardar Liquidación</button>
+          <button id="btnGuardarImportado" class="btn btn-primary">✅ Guardar Recaudación</button>
           <button id="btnCancelarImportado" class="btn btn-secondary">✖ Cancelar</button>
+        </div>
+      </div>
+      <div id="impPreguntaMas" class="form-card" style="display:none; text-align:center;">
+        <p style="font-size:1rem; font-weight:600; margin-bottom:14px;">¿Tienes más recaudaciones para importar?</p>
+        <div class="form-actions" style="justify-content:center;">
+          <button id="btnImpMas" class="btn btn-primary">📥 Sí, importar otra</button>
+          <button id="btnImpFin" class="btn btn-secondary">🏠 No, volver al inicio</button>
         </div>
       </div>
     </section>
@@ -1431,30 +1446,39 @@ function comprobarAvisoLiquidacion() {
 
 function analizarTextoCorreo(texto) { return extraerCamposTUSSAM(texto); }
 function extraerCamposTUSSAM(texto) {
-  var resultado = { fecha: "", recibo: "", maquina: "", importe: "" };
+  var resultado = { fecha: "", servicio: "", importe: "" };
   var t = texto.replace(/\r/g, "\n").replace(/[ \t]+/g, " ");
-  var mRecibo = t.match(/[Rr]ec[ib]{2}o\s*[:\-]?\s*(\d{4,10})/);
-  if (!mRecibo) mRecibo = t.match(/[Rr]ecibo\s*[:\-]?\s*(\d{4,10})/);
-  if (mRecibo) resultado.recibo = mRecibo[1].trim();
-  var mMaquina = t.match(/[Mm][aá]quina\s*[:\-]?\s*(\d{6,15})/);
-  if (mMaquina) resultado.maquina = mMaquina[1].trim();
-  var mFecha = t.match(/[Ff]echa\s*[:\-]?\s*(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
-  if (mFecha) {
-    var dia = mFecha[1].padStart(2, "0"), mes = mFecha[2].padStart(2, "0");
-    var anio = mFecha[3].length === 2 ? "20" + mFecha[3] : mFecha[3];
+  // Fecha: desde "Inicio servicio: DD/MM/YYYY HH:MM:SS" o "Informe emitido: DD/M/YYYY HH:MM"
+  var mFechaInicio = t.match(/[Ii]nicio\s+servicio\s*:\s*(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+  if (mFechaInicio) {
+    var dia = mFechaInicio[1].padStart(2,"0"), mes = mFechaInicio[2].padStart(2,"0");
+    var anio = mFechaInicio[3].length === 2 ? "20" + mFechaInicio[3] : mFechaInicio[3];
     resultado.fecha = anio + "-" + mes + "-" + dia;
+  } else {
+    var mFechaInf = t.match(/[Ii]nforme\s+emitido\s*:\s*(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+    if (mFechaInf) {
+      var dia2 = mFechaInf[1].padStart(2,"0"), mes2 = mFechaInf[2].padStart(2,"0");
+      var anio2 = mFechaInf[3].length === 2 ? "20" + mFechaInf[3] : mFechaInf[3];
+      resultado.fecha = anio2 + "-" + mes2 + "-" + dia2;
+    }
   }
-  var lineas = t.split("\n");
-  for (var i = 0; i < lineas.length; i++) {
-    var linea = lineas[i].trim();
-    if (/[Tt]otal\s+(monedas|billetes)/i.test(linea)) continue;
-    var mT = linea.match(/^[Tt]otal\s*[:\-]?\s*(?:[Ee][Uu][Rr])?\s*(\d+[,.]\d{2})/);
-    if (mT) { resultado.importe = normalizarImporte(mT[1]); break; }
-    var mT2 = linea.match(/^[Tt]otal[^\n]*[Ee][Uu][Rr]\s*(\d+[,.]\d{2})/);
-    if (mT2) { resultado.importe = normalizarImporte(mT2[1]); break; }
+  // Servicio: "Servicio: XXXX"
+  var mServ = t.match(/[Ss]ervicio\s*:\s*(\d+)/);
+  if (mServ) resultado.servicio = mServ[1];
+  // Importe: "TOT. A INGRESAR: X,XX€" o variantes
+  var mTot = t.match(/TOT[\.\s]*A\s*INGRESAR\s*:\s*([\d]+[,.][\d]{1,2})\s*€?/i);
+  if (mTot) { resultado.importe = normalizarImporte(mTot[1]); }
+  if (!resultado.importe) {
+    var lineas = t.split("\n");
+    for (var i = 0; i < lineas.length; i++) {
+      var linea = lineas[i].trim();
+      if (/[Tt]otal\s+(monedas|billetes)/i.test(linea)) continue;
+      var mT = linea.match(/[Tt]otal\s*[:\-]?\s*(?:EUR)?\s*([\d]+[,.][\d]{1,2})\s*€?/i);
+      if (mT) { resultado.importe = normalizarImporte(mT[1]); break; }
+    }
   }
   if (!resultado.importe) {
-    var todos = [], re = /[Ee][Uu][Rr]\s*(\d+[,.]\d{2})/g, m;
+    var todos = [], re = /([\d]+[,.][\d]{1,2})\s*€/g, m;
     while ((m = re.exec(t)) !== null) todos.push(m[1]);
     if (todos.length > 0) resultado.importe = normalizarImporte(todos[todos.length - 1]);
   }
@@ -1468,43 +1492,93 @@ function normalizarImporte(texto) {
 }
 
 function inicializarImportarCorreo() {
+  var impRecExistente = null;
   document.getElementById("btnAnalizarCorreo").addEventListener("click", function () {
     var texto = document.getElementById("textoCorreo").value.trim();
     if (!texto) { mostrarToast("Pega primero el texto del correo.", "error"); return; }
     var datos = analizarTextoCorreo(texto);
-    document.getElementById("impFecha").value = datos.fecha || fechaHoyISO();
-    document.getElementById("impRecibo").value = datos.recibo || "";
-    document.getElementById("impMaquina").value = datos.maquina || "";
+    var fecha = datos.fecha || fechaHoyISO();
+    var servicio = datos.servicio || "";
+    document.getElementById("impFecha").value = fecha;
+    document.getElementById("impServicio").value = servicio;
     document.getElementById("impImporte").value = datos.importe || "";
+    document.getElementById("impParte").value = "1";
+    impRecExistente = null;
+    if (fecha && servicio) {
+      impRecExistente = listaRecaudaciones.find(function (r) { return r.fecha === fecha && r.servicio === servicio; }) || null;
+    }
+    var infoExistente = document.getElementById("impInfoExistente");
+    if (impRecExistente) {
+      var tieneP1 = impRecExistente.parte1 > 0, tieneP2 = impRecExistente.parte2 > 0;
+      infoExistente.style.display = "block";
+      if (tieneP1 && tieneP2) {
+        infoExistente.style.borderColor = "var(--color-danger)"; infoExistente.style.color = "var(--color-danger)";
+        infoExistente.innerHTML = "&#9888; Esta recaudaci&#243;n ya tiene las <strong>dos partes</strong> rellenas. Si guardas sobreescribir&#225;s la parte que elijas.";
+      } else {
+        infoExistente.style.borderColor = "var(--color-success)"; infoExistente.style.color = "var(--color-success)";
+        infoExistente.innerHTML = "&#10004; Recaudaci&#243;n encontrada. Se <strong>actualizar&#225;</strong> con esta parte.";
+        document.getElementById("impParte").value = tieneP1 ? "2" : "1";
+      }
+    } else { infoExistente.style.display = "none"; }
+    document.getElementById("impPreguntaMas").style.display = "none";
     document.getElementById("resultadoAnalisis").style.display = "block";
     var faltantes = [];
-    if (!datos.fecha) faltantes.push("fecha"); if (!datos.recibo) faltantes.push("recibo");
-    if (!datos.maquina) faltantes.push("máquina"); if (!datos.importe) faltantes.push("importe");
-    if (faltantes.length > 0) mostrarToast("No se detectó: " + faltantes.join(", "), "error");
+    if (!datos.fecha) faltantes.push("fecha"); if (!datos.servicio) faltantes.push("servicio"); if (!datos.importe) faltantes.push("importe");
+    if (faltantes.length > 0) mostrarToast("No se detect\u00f3: " + faltantes.join(", "), "error");
     else mostrarToast("Datos detectados. Revisa antes de guardar.", "success");
     document.getElementById("resultadoAnalisis").scrollIntoView({ behavior: "smooth" });
   });
   document.getElementById("btnLimpiarCorreo").addEventListener("click", function () {
     document.getElementById("textoCorreo").value = "";
     document.getElementById("resultadoAnalisis").style.display = "none";
+    document.getElementById("impInfoExistente").style.display = "none";
+    document.getElementById("impPreguntaMas").style.display = "none";
+    impRecExistente = null;
   });
   document.getElementById("btnCancelarImportado").addEventListener("click", function () {
     document.getElementById("resultadoAnalisis").style.display = "none";
     document.getElementById("textoCorreo").value = "";
+    document.getElementById("impInfoExistente").style.display = "none";
+    document.getElementById("impPreguntaMas").style.display = "none";
+    impRecExistente = null;
   });
   document.getElementById("btnGuardarImportado").addEventListener("click", function () {
     var fecha = document.getElementById("impFecha").value;
-    var recibo = document.getElementById("impRecibo").value.trim();
-    var maquina = document.getElementById("impMaquina").value.trim();
+    var servicio = document.getElementById("impServicio").value.trim();
     var importe = parseFloat(document.getElementById("impImporte").value);
-    if (!fecha || !recibo || !maquina || isNaN(importe)) { mostrarToast("Completa todos los campos.", "error"); return; }
-    var registro = { id: generarId(), fecha: fecha, recibo: recibo, maquina: maquina, importe: importe };
-    guardarRegistro(STORE_LIQUIDACIONES, registro).then(function () {
-      listaLiquidaciones.push(registro); renderizarLiquidaciones(); actualizarResumen();
-      mostrarToast("Liquidación importada correctamente", "success");
+    var parte = document.getElementById("impParte").value;
+    if (!fecha || !servicio || isNaN(importe)) { mostrarToast("Completa todos los campos.", "error"); return; }
+    var registro;
+    if (impRecExistente) {
+      registro = { id: impRecExistente.id, fecha: fecha, servicio: servicio,
+        parte1: parte === "1" ? importe : impRecExistente.parte1,
+        parte2: parte === "2" ? importe : impRecExistente.parte2 };
+      registro.total = registro.parte1 + registro.parte2;
+    } else {
+      var p1 = parte === "1" ? importe : 0, p2 = parte === "2" ? importe : 0;
+      registro = { id: generarId(), fecha: fecha, servicio: servicio, parte1: p1, parte2: p2, total: p1 + p2 };
+    }
+    guardarRegistro(STORE_RECAUDACIONES, registro).then(function () {
+      if (impRecExistente) {
+        var idx = listaRecaudaciones.findIndex(function (r) { return r.id === registro.id; });
+        if (idx !== -1) listaRecaudaciones[idx] = registro;
+      } else { listaRecaudaciones.push(registro); }
+      renderizarRecaudaciones(); actualizarResumen();
+      mostrarToast("Recaudaci\u00f3n " + (impRecExistente ? "actualizada" : "importada") + " correctamente", "success");
+      impRecExistente = null;
       document.getElementById("textoCorreo").value = "";
       document.getElementById("resultadoAnalisis").style.display = "none";
+      document.getElementById("impInfoExistente").style.display = "none";
+      document.getElementById("impPreguntaMas").style.display = "block";
+      document.getElementById("impPreguntaMas").scrollIntoView({ behavior: "smooth" });
     });
+  });
+  document.getElementById("btnImpMas").addEventListener("click", function () {
+    document.getElementById("impPreguntaMas").style.display = "none";
+  });
+  document.getElementById("btnImpFin").addEventListener("click", function () {
+    document.getElementById("impPreguntaMas").style.display = "none";
+    volverAlMenu();
   });
 }
 
@@ -1753,7 +1827,7 @@ document.addEventListener("DOMContentLoaded", function () {
     inicializarRecaudaciones(); inicializarLiquidaciones(); inicializarImportarCorreo();
     inicializarBackup(); inicializarEstadillo(); inicializarHistorial(); inicializarCamaraOCR();
     return Promise.all([cargarRecaudaciones(), cargarLiquidaciones()]);
-  }).then(function () { actualizarResumen(); comprobarBackupAutomatico(); });
+  }).then(function () { actualizarResumen(); comprobarBackupAutomatico(); var params=new URLSearchParams(window.location.search); var correoParam=params.get("correo"); if(correoParam){var texto=decodeURIComponent(correoParam); abrirSeccion("importar"); document.getElementById("textoCorreo").value=texto; document.getElementById("btnAnalizarCorreo").click(); window.history.replaceState({},"",window.location.pathname);} });
 });
   </script>
 
